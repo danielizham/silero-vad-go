@@ -52,6 +52,8 @@ type DetectorConfig struct {
 	Threshold float32
 	// The duration of silence to wait for each speech segment before separating it.
 	MinSilenceDurationMs int
+	// The maximum duration of speech chunks in seconds
+	MaxSpeechDurationS int
 	// The padding to add to speech segments to avoid aggressive cutting.
 	SpeechPadMs int
 	// The loglevel for the onnx environment, by default it is set to LogLevelWarn.
@@ -73,6 +75,10 @@ func (c DetectorConfig) IsValid() error {
 
 	if c.MinSilenceDurationMs < 0 {
 		return fmt.Errorf("invalid MinSilenceDurationMs: should be a positive number")
+	}
+
+	if c.MaxSpeechDurationS < 0 {
+		return fmt.Errorf("invalid MaxSpeechDurationS: should be a positive number")
 	}
 
 	if c.SpeechPadMs < 0 {
