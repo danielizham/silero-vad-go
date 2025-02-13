@@ -170,10 +170,10 @@ func NewDetector(cfg DetectorConfig) (*Detector, error) {
 
 // Segment contains timing information of a speech segment.
 type Segment struct {
-	// The relative timestamp in seconds of when a speech segment begins.
-	SpeechStartAt float64
-	// The relative timestamp in seconds of when a speech segment ends.
-	SpeechEndAt float64
+	// The relative timestamp in samples of when a speech segment begins.
+	SpeechStartAt int
+	// The relative timestamp in samples of when a speech segment ends.
+	SpeechEndAt int
 }
 
 func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
@@ -210,14 +210,14 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 
 		if speechProb >= sd.cfg.Threshold && !sd.triggered {
 			sd.triggered = true
-			speechStartAt := (float64(sd.currSample-windowSize-speechPadSamples) / float64(sd.cfg.SampleRate))
+			speechStartAt := sd.currSample - windowSize - speechPadSamples
 
 			// We clamp at zero since due to padding the starting position could be negative.
 			if speechStartAt < 0 {
 				speechStartAt = 0
 			}
 
-			slog.Debug("speech start", slog.Float64("startAt", speechStartAt))
+			slog.Debug("speech start", slog.Int("startAt", speechStartAt))
 			segments = append(segments, Segment{
 				SpeechStartAt: speechStartAt,
 			})
@@ -233,10 +233,10 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 				continue
 			}
 
-			speechEndAt := (float64(sd.tempEnd+speechPadSamples) / float64(sd.cfg.SampleRate))
+			speechEndAt := sd.tempEnd + speechPadSamples
 			sd.tempEnd = 0
 			sd.triggered = false
-			slog.Debug("speech end", slog.Float64("endAt", speechEndAt))
+			slog.Debug("speech end", slog.Int("endAt", speechEndAt))
 
 			if len(segments) < 1 {
 				return nil, fmt.Errorf("unexpected speech end")
