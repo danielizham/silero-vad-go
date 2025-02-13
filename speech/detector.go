@@ -200,8 +200,14 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 
 	minSilenceSamples := sd.cfg.MinSilenceDurationMs * sd.cfg.SampleRate / 1000
 	speechPadSamples := sd.cfg.SpeechPadMs * sd.cfg.SampleRate / 1000
+	maxSpeechSamples := sd.cfg.MaxSpeechDurationS*sd.cfg.SampleRate - windowSize - (2 * speechPadSamples)
+	minSpeechSamples := 250 * sd.cfg.SampleRate / 1000
 
+	var speechStartAt int
+	var speechEndAt int
+	var segment Segment
 	var segments []Segment
+	var prevEnd, nextStart int
 	for i := 0; i < len(pcm)-windowSize; i += windowSize {
 		speechProb, err := sd.infer(pcm[i : i+windowSize])
 		if err != nil {
@@ -212,11 +218,14 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 
 		if speechProb >= sd.cfg.Threshold && sd.tempEnd != 0 {
 			sd.tempEnd = 0
+			if nextStart < prevEnd {
+				nextStart = i
+			}
 		}
 
 		if speechProb >= sd.cfg.Threshold && !sd.triggered {
 			sd.triggered = true
-			speechStartAt := sd.currSample - windowSize - speechPadSamples
+			speechStartAt = i - windowSize - speechPadSamples
 
 			// We clamp at zero since due to padding the starting position could be negative.
 			if speechStartAt < 0 {
@@ -224,32 +233,52 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 			}
 
 			slog.Debug("speech start", slog.Int("startAt", speechStartAt))
-			segments = append(segments, Segment{
-				SpeechStartAt: speechStartAt,
-			})
+			segment.SpeechStartAt = speechStartAt
+			continue
+		}
+
+		if sd.triggered && (i-speechStartAt > maxSpeechSamples) {
+			if prevEnd != 0 {
+				segment.SpeechEndAt = prevEnd
+				segments = append(segments, segment)
+				if nextStart < prevEnd {
+					sd.triggered = false
+				} else {
+					segment.SpeechStartAt = nextStart
+				}
+				prevEnd, nextStart, sd.tempEnd = 0, 0, 0
+			} else {
+				segment.SpeechEndAt = i
+				segments = append(segments, segment)
+				prevEnd, nextStart, sd.tempEnd = 0, 0, 0
+				sd.triggered = false
+				continue
+			}
 		}
 
 		if speechProb < (sd.cfg.Threshold-0.15) && sd.triggered {
 			if sd.tempEnd == 0 {
-				sd.tempEnd = sd.currSample
+				sd.tempEnd = i
 			}
 
 			// Not enough silence yet to split, we continue.
-			if sd.currSample-sd.tempEnd < minSilenceSamples {
+			if i-sd.tempEnd < minSilenceSamples {
 				continue
 			}
 
-			speechEndAt := sd.tempEnd + speechPadSamples
-			sd.tempEnd = 0
+			segment.SpeechEndAt = sd.tempEnd + speechPadSamples
+			prevEnd, nextStart, sd.tempEnd = 0, 0, 0
 			sd.triggered = false
 			slog.Debug("speech end", slog.Int("endAt", speechEndAt))
 
-			if len(segments) < 1 {
-				return nil, fmt.Errorf("unexpected speech end")
+			if segment.SpeechEndAt-segment.SpeechStartAt > minSpeechSamples {
+				segments = append(segments, segment)
 			}
-
-			segments[len(segments)-1].SpeechEndAt = speechEndAt
 		}
+	}
+
+	if (segments[len(segments)-1].SpeechEndAt == 0) && (len(pcm)-segments[len(segments)-1].SpeechStartAt > minSpeechSamples) {
+		segments[len(segments)-1].SpeechEndAt = len(pcm)
 	}
 
 	slog.Debug("speech detection done", slog.Int("segmentsLen", len(segments)))
