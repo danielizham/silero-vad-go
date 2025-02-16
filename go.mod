@@ -1,4 +1,4 @@
-module github.com/danielizham/silero-vad-go
+module github.com/danielizham/silero-vad-go/v2
 
 go 1.21.4
 
