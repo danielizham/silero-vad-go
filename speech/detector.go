@@ -7,8 +7,12 @@ import "C"
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"unsafe"
+
+	"github.com/go-audio/audio"
+	"github.com/go-audio/wav"
 )
 
 const (
@@ -182,7 +186,7 @@ type Segment struct {
 	SpeechEndAt int
 }
 
-func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan bool) {
+func (sd *Detector) Detect(r io.ReadSeeker) (<-chan Segment, <-chan error, <-chan bool) {
 	segmentCh := make(chan Segment, 1)
 	errorCh := make(chan error, 1)
 	doneCh := make(chan bool, 1)
@@ -196,11 +200,7 @@ func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan 
 		windowSize = 256
 	}
 
-	if len(pcm) < windowSize {
-		errorCh <- fmt.Errorf("not enough samples")
-	}
-
-	slog.Debug("starting speech detection", slog.Int("samplesLen", len(pcm)))
+	slog.Debug("starting speech detection")
 
 	minSilenceSamples := sd.cfg.MinSilenceDurationMs * sd.cfg.SampleRate / 1000
 	speechPadSamples := sd.cfg.SpeechPadMs * sd.cfg.SampleRate / 1000
@@ -212,8 +212,26 @@ func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan 
 	var prevEnd, nextStart int
 
 	go func() {
-		for i := 0; i < len(pcm)-windowSize; i += windowSize {
-			speechProb, err := sd.infer(pcm[i : i+windowSize])
+		dec := wav.NewDecoder(r)
+		if ok := dec.IsValidFile(); !ok {
+			errorCh <- fmt.Errorf("invalid WAV file")
+		}
+
+		buffer := &audio.IntBuffer{Data: make([]int, windowSize)}
+		i := 0
+
+	InferenceLoop:
+		for {
+			n, err := dec.PCMBuffer(buffer)
+			if err != nil {
+				errorCh <- fmt.Errorf("error reading PCM buffer: %w", err)
+			}
+			if n < windowSize {
+				break InferenceLoop
+			}
+			pcmData := buffer.AsFloat32Buffer().Data[:n]
+
+			speechProb, err := sd.infer(pcmData)
 			if err != nil {
 				errorCh <- fmt.Errorf("infer failed: %w", err)
 			}
@@ -238,6 +256,7 @@ func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan 
 
 				slog.Debug("speech start", slog.Int("startAt", speechStartAt))
 				segment.SpeechStartAt = speechStartAt
+				i += windowSize
 				continue
 			}
 
@@ -256,6 +275,7 @@ func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan 
 					segmentCh <- segment
 					prevEnd, nextStart, sd.tempEnd = 0, 0, 0
 					sd.triggered = false
+					i += windowSize
 					continue
 				}
 			}
@@ -267,6 +287,7 @@ func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan 
 
 				// Not enough silence yet to split, we continue.
 				if i-sd.tempEnd < minSilenceSamples {
+					i += windowSize
 					continue
 				}
 
@@ -279,6 +300,8 @@ func (sd *Detector) Detect(pcm []float32) (<-chan Segment, <-chan error, <-chan 
 					segmentCh <- segment
 				}
 			}
+
+			i += windowSize
 		}
 		slog.Debug("speech detection done")
 		close(doneCh)
