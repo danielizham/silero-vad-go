@@ -216,20 +216,19 @@ func (sd *Detector) Detect(r io.ReadSeeker) (<-chan Segment, <-chan error, <-cha
 		if ok := dec.IsValidFile(); !ok {
 			errorCh <- fmt.Errorf("invalid WAV file")
 		}
-
-		buffer := &audio.IntBuffer{Data: make([]int, windowSize)}
 		i := 0
 
 	InferenceLoop:
 		for {
+			buffer := &audio.IntBuffer{Data: make([]int, windowSize)}
 			n, err := dec.PCMBuffer(buffer)
 			if err != nil {
 				errorCh <- fmt.Errorf("error reading PCM buffer: %w", err)
 			}
-			if n < windowSize {
+			if n == 0 {
 				break InferenceLoop
 			}
-			pcmData := buffer.AsFloat32Buffer().Data[:n]
+			pcmData := buffer.AsFloat32Buffer().Data
 
 			speechProb, err := sd.infer(pcmData)
 			if err != nil {
