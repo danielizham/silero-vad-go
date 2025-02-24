@@ -277,8 +277,10 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 		}
 	}
 
-	if (segments[len(segments)-1].SpeechEndAt == 0) && (len(pcm)-segments[len(segments)-1].SpeechStartAt > minSpeechSamples) {
-		segments[len(segments)-1].SpeechEndAt = len(pcm)
+	if len(segments) > 0 {
+		if (segments[len(segments)-1].SpeechEndAt == 0) && (len(pcm)-segments[len(segments)-1].SpeechStartAt > minSpeechSamples) {
+			segments[len(segments)-1].SpeechEndAt = len(pcm)
+		}
 	}
 
 	slog.Debug("speech detection done", slog.Int("segmentsLen", len(segments)))
