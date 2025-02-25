@@ -225,7 +225,7 @@ func (sd *Detector) Detect(r io.ReadSeeker) (<-chan Segment, <-chan error, <-cha
 			if err != nil {
 				errorCh <- fmt.Errorf("error reading PCM buffer: %w", err)
 			}
-			if n == 0 {
+			if n < windowSize {
 				break InferenceLoop
 			}
 			pcmData := buffer.AsFloat32Buffer().Data
