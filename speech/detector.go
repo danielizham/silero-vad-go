@@ -8,7 +8,9 @@ import "C"
 import (
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
+	"sync"
 	"unsafe"
 
 	"github.com/go-audio/audio"
@@ -178,6 +180,49 @@ func NewDetector(cfg DetectorConfig) (*Detector, error) {
 	return &sd, nil
 }
 
+type SafeWavDecoder struct {
+	*wav.Decoder
+	mu sync.Mutex
+}
+
+func (dec *SafeWavDecoder) GetSamples(idxStart int, idxEnd int) []float32 {
+	dec.mu.Lock()
+	defer dec.mu.Unlock()
+
+	// Save the current position of the cursor
+	// so that we can go back to it after getting the samples
+	prevOffset, err := dec.Seek(0, io.SeekCurrent)
+	if err != nil {
+		log.Printf("error reading previous seek position: %w", err)
+	}
+
+	dec.Rewind()
+	dec.Seek(int64(idxStart)*2, io.SeekCurrent) // *2 because of the 16-bit pcm encoding (2 bytes per value)
+
+	intBuf := &audio.IntBuffer{Data: make([]int, idxEnd-idxStart)}
+	n, err := dec.PCMBuffer(intBuf)
+	if err != nil {
+		log.Printf("Length of PCM: %d\n", dec.PCMSize)
+		log.Printf("Requested - start: %d, end: %d\n", idxStart, idxEnd)
+		log.Printf("error reading PCM buffer: %w", err)
+	}
+	data := intBuf.AsFloat32Buffer().Data[:n]
+
+	// Return the cursor to the previous position
+	dec.Seek(prevOffset, io.SeekStart)
+
+	return data
+}
+
+func (dec *SafeWavDecoder) ReadPCMBuffer(buf *audio.IntBuffer) (int, error) {
+	dec.mu.Lock()
+	defer dec.mu.Unlock()
+
+	n, err := dec.PCMBuffer(buf)
+
+	return n, err
+}
+
 // Segment contains timing information of a speech segment.
 type Segment struct {
 	// The relative timestamp in samples of when a speech segment begins.
@@ -186,7 +231,7 @@ type Segment struct {
 	SpeechEndAt int
 }
 
-func (sd *Detector) Detect(r io.ReadSeeker) (<-chan Segment, <-chan error, <-chan bool) {
+func (sd *Detector) Detect(dec *SafeWavDecoder) (<-chan Segment, <-chan error, <-chan bool) {
 	segmentCh := make(chan Segment, 1)
 	errorCh := make(chan error, 1)
 	doneCh := make(chan bool, 1)
@@ -212,7 +257,6 @@ func (sd *Detector) Detect(r io.ReadSeeker) (<-chan Segment, <-chan error, <-cha
 	var prevEnd, nextStart int
 
 	go func() {
-		dec := wav.NewDecoder(r)
 		if ok := dec.IsValidFile(); !ok {
 			errorCh <- fmt.Errorf("invalid WAV file")
 		}
@@ -221,7 +265,7 @@ func (sd *Detector) Detect(r io.ReadSeeker) (<-chan Segment, <-chan error, <-cha
 	InferenceLoop:
 		for {
 			buffer := &audio.IntBuffer{Data: make([]int, windowSize)}
-			n, err := dec.PCMBuffer(buffer)
+			n, err := dec.ReadPCMBuffer(buffer)
 			if err != nil {
 				errorCh <- fmt.Errorf("error reading PCM buffer: %w", err)
 			}
