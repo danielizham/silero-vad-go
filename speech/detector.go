@@ -182,7 +182,7 @@ func NewDetector(cfg DetectorConfig) (*Detector, error) {
 
 type SafeWavDecoder struct {
 	*wav.Decoder
-	mu sync.Mutex
+	mu *sync.Mutex
 }
 
 func (dec *SafeWavDecoder) GetSamples(idxStart int, idxEnd int) []float32 {
