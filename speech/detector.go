@@ -182,12 +182,12 @@ func NewDetector(cfg DetectorConfig) (*Detector, error) {
 
 type SafeWavDecoder struct {
 	*wav.Decoder
-	mu sync.Mutex
+	Mu *sync.Mutex
 }
 
 func (dec *SafeWavDecoder) GetSamples(idxStart int, idxEnd int) []float32 {
-	dec.mu.Lock()
-	defer dec.mu.Unlock()
+	dec.Mu.Lock()
+	defer dec.Mu.Unlock()
 
 	// Save the current position of the cursor
 	// so that we can go back to it after getting the samples
@@ -215,8 +215,8 @@ func (dec *SafeWavDecoder) GetSamples(idxStart int, idxEnd int) []float32 {
 }
 
 func (dec *SafeWavDecoder) ReadPCMBuffer(buf *audio.IntBuffer) (int, error) {
-	dec.mu.Lock()
-	defer dec.mu.Unlock()
+	dec.Mu.Lock()
+	defer dec.Mu.Unlock()
 
 	n, err := dec.PCMBuffer(buf)
 
