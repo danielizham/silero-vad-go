@@ -232,15 +232,15 @@ type Segment struct {
 	SpeechStartAt int
 	// The relative timestamp in samples of when a speech segment ends.
 	SpeechEndAt int
+	// Error
+	Error error
 }
 
-func (sd *Detector) Detect(dec *SafeWavDecoder) (<-chan Segment, <-chan error, <-chan bool) {
+func (sd *Detector) Detect(dec *SafeWavDecoder) <-chan Segment {
 	segmentCh := make(chan Segment, 1)
-	errorCh := make(chan error, 1)
-	doneCh := make(chan bool, 1)
 
 	if sd == nil {
-		errorCh <- fmt.Errorf("invalid nil detector")
+		segmentCh <- Segment{Error: fmt.Errorf("invalid nil detector")}
 	}
 
 	windowSize := 512
@@ -261,7 +261,7 @@ func (sd *Detector) Detect(dec *SafeWavDecoder) (<-chan Segment, <-chan error, <
 
 	go func() {
 		if ok := dec.IsValidFile(); !ok {
-			errorCh <- fmt.Errorf("invalid WAV file")
+			segmentCh <- Segment{Error: fmt.Errorf("invalid WAV file")}
 		}
 		i := 0
 
@@ -270,7 +270,7 @@ func (sd *Detector) Detect(dec *SafeWavDecoder) (<-chan Segment, <-chan error, <
 			buffer := &audio.IntBuffer{Data: make([]int, windowSize)}
 			n, err := dec.ReadPCMBuffer(buffer)
 			if err != nil {
-				errorCh <- fmt.Errorf("error reading PCM buffer: %w", err)
+				segmentCh <- Segment{Error: fmt.Errorf("error reading PCM buffer: %w", err)}
 			}
 			if n < windowSize {
 				break InferenceLoop
@@ -279,7 +279,7 @@ func (sd *Detector) Detect(dec *SafeWavDecoder) (<-chan Segment, <-chan error, <
 
 			speechProb, err := sd.infer(pcmData)
 			if err != nil {
-				errorCh <- fmt.Errorf("infer failed: %w", err)
+				segmentCh <- Segment{Error: fmt.Errorf("infer failed: %w", err)}
 			}
 
 			sd.currSample += windowSize
@@ -350,10 +350,10 @@ func (sd *Detector) Detect(dec *SafeWavDecoder) (<-chan Segment, <-chan error, <
 			i += windowSize
 		}
 		slog.Debug("speech detection done")
-		close(doneCh)
+		close(segmentCh)
 	}()
 
-	return segmentCh, errorCh, doneCh
+	return segmentCh
 }
 
 func (sd *Detector) Reset() error {
