@@ -208,13 +208,10 @@ func (dec *SafeWavDecoder) GetSamples(idxStart int, idxEnd int) []float32 {
 	}
 	data := intBuf.AsFloat32Buffer().Data[:n]
 
-	data_copy := make([]float32, len(data))
-	copy(data_copy, data)
-
 	// Return the cursor to the previous position
 	dec.Seek(prevOffset, io.SeekStart)
 
-	return data_copy
+	return data
 }
 
 func (dec *SafeWavDecoder) ReadPCMBuffer(buf *audio.IntBuffer) (int, error) {
