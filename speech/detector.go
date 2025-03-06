@@ -177,9 +177,9 @@ func NewDetector(cfg DetectorConfig) (*Detector, error) {
 // Segment contains timing information of a speech segment.
 type Segment struct {
 	// The relative timestamp in samples of when a speech segment begins.
-	SpeechStartAt int
+	SpeechStartAt int `json:"start"`
 	// The relative timestamp in samples of when a speech segment ends.
-	SpeechEndAt int
+	SpeechEndAt int `json:"end"`
 }
 
 func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
